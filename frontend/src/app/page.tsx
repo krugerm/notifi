@@ -5,7 +5,7 @@ import { ChatSettings } from '@/components/chat/ChatSettings';
 import { DateSeparator } from '@/components/chat/DateSeparator';
 import { JumpToBottomButton } from '@/components/chat/JumpToBottomButton';
 import { MessageBubble } from '@/components/chat/MessageBubble';
-import { MessageInput } from '@/components/chat/MessageInput';
+import { MessageInput, MessageInputHandle } from '@/components/chat/MessageInput';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { debug } from '@/utils/debug';
 import { Loader2, LogOut } from 'lucide-react';
@@ -55,6 +55,7 @@ export default function Home() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [unreadCount, setUnreadCount] = useState<number>(0);
   const [isNearBottom, setIsNearBottom] = useState<boolean>(true);
+
   const [connectionInfo, setConnectionInfo] = useState<{
     connected: boolean;
     deviceId: string;
@@ -69,6 +70,7 @@ export default function Home() {
   const messagesContainerReference = useRef<HTMLDivElement>(null);
   const messagesEndReference = useRef<HTMLDivElement>(null);
   const lastReadTimestampReference = useRef<string | null>(null);
+  const messageInputRef = useRef<MessageInputHandle>(null);
 
   const { isConnected, deviceId, browserInfo, reconnect } = useWebSocket(token, {
     onMessage: (message) => {
@@ -160,12 +162,16 @@ export default function Home() {
           setMessages(previousMessages => [...responseData.messages, ...previousMessages]);
         } else {
           setMessages(responseData.messages);
+
           if (responseData.messages.length > 0) {
             lastReadTimestampReference.current = responseData.messages[responseData.messages.length - 1]?.timestamp ?? null;
           }
           else{
             lastReadTimestampReference.current = null;
           }
+
+          // Focus input after initial load
+          messageInputRef.current?.focus();
         }
         setHasMore(responseData.hasMore);
         setNextCursor(responseData.nextCursor);
@@ -288,11 +294,22 @@ export default function Home() {
     }
   }, [handleScroll]);
 
+  // focus input when logged in
+  useEffect(() => {
+    if (isLoggedIn) {
+      // Small delay to ensure component is mounted
+      const timeoutId = setTimeout(() => {
+        messageInputRef.current?.focus();
+      }, 100);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [isLoggedIn]);
+
   if (!isLoggedIn) {
     return (
       <div className="min-h-screen bg-gray-100 p-4">
         <div className="max-w-md mx-auto bg-white rounded-lg shadow-md p-6">
-          <h1 className="text-2xl font-bold mb-6 text-center">Notifi Application</h1>
+          <img src="/logo.svg" alt="Notifi Logo" className="w-16 h-16 mx-auto mb-4" />
           {alert && (
             <Alert variant={alert.type} className="mb-4">
               <AlertDescription>{alert.message}</AlertDescription>
@@ -340,7 +357,7 @@ export default function Home() {
   return (
     <div className="flex flex-col h-screen bg-gray-100">
       <div className="flex justify-between items-center bg-white shadow-sm p-4">
-        <h1 className="text-xl font-bold">Notifi Application</h1>
+        <img src="/logo.svg" alt="Notifi Logo" className="items-center h-16 my-auto mx-0" />
         {connectionInfo.browserInfo && (
             <div className="flex items-center gap-2 text-sm">
               <div className={`w-2 h-2 rounded-full ${
@@ -415,7 +432,12 @@ export default function Home() {
         />
       )}
 
-      <MessageInput onSend={sendMessage} disabled={isLoading} />
+      <MessageInput 
+        ref={messageInputRef}
+        onSend={sendMessage} 
+        disabled={isLoading}
+        autoFocus
+      />
     </div>
   );
 }

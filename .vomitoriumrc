@@ -11,7 +11,7 @@
     ".gitignore",
     ".temp",
     "next-env.d.ts",
-    "next.config.ts",
+    "next.config.ts"
   ],
   "excludeFiles": [
     "backend/package.json",
@@ -19,7 +19,7 @@
     "backend/pubspec.lock",
     "frontend/package.json",
     "frontend/package-lock.json",
-    "frontend/pubspec.lock",
+    "frontend/pubspec.lock"
   ],
   "extensions": [
     ".html",

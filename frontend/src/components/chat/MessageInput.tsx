@@ -1,10 +1,14 @@
-// src/components/chat/MessageInput.tsx
 import { FileIcon, FileText, Image, Paperclip, Send, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+
+export interface MessageInputHandle {
+  focus: () => void;
+}
 
 interface MessageInputProps {
   onSend: (message: string, files?: FileList | null) => Promise<boolean>;
   disabled?: boolean;
+  autoFocus?: boolean;
 }
 
 interface AttachmentPreview {
@@ -14,12 +18,30 @@ interface AttachmentPreview {
   type: string;
 }
 
-export const MessageInput = ({ onSend, disabled }: MessageInputProps) => {
+export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(({ 
+  onSend, 
+  disabled,
+  autoFocus 
+}, ref) => {
   const [message, setMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [attachments, setAttachments] = useState<AttachmentPreview[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Expose focus method via ref
+  useImperativeHandle(ref, () => ({
+    focus: () => {
+      textareaRef.current?.focus();
+    }
+  }));
+
+  // Auto focus when component mounts if autoFocus is true
+  useEffect(() => {
+    if (autoFocus) {
+      textareaRef.current?.focus();
+    }
+  }, [autoFocus]);
 
   const formatFileSize = (bytes: number): string => {
     if (bytes < 1024) return bytes + ' B';
@@ -169,11 +191,13 @@ export const MessageInput = ({ onSend, disabled }: MessageInputProps) => {
         <button
           type="submit"
           disabled={!message.trim() || disabled || isSending}
-          className="px-4 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:hover:bg-blue-500 flex items-center justify-center"
+          className="px-4 bg-blue-500 text-white rounded-lg hover:bg-blue-600 
+          disabled:opacity-50 disabled:hover:bg-blue-500 flex items-center 
+          justify-center"
         >
           <Send className="w-5 h-5" />
         </button>
       </form>
     </div>
   );
-};
+});
