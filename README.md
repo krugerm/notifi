@@ -45,7 +45,7 @@ Notifi is a lightweight, real-time notification service that lets you instantly 
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/yourusername/notifi.git
+git clone https://github.com/krugerm/notifi.git
 cd notifi/backend
 ```
 
