@@ -1,105 +1,80 @@
+// src/app/page.tsx
 "use client";
 
+import { AuthForm } from '@/components/auth/AuthForm';
+import { MessageBubble } from '@/components/chat/MessageBubble';
+import { MessageInput } from '@/components/chat/MessageInput';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Bell, LogIn, LogOut, Send, UserPlus } from 'lucide-react';
+import { AlertState, Message } from '@/types/chat';
+import { LogOut } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-
-// Types
-interface Notification {
-  id: number;
-  title: string;
-  body: string;
-  timestamp: string;
-}
-
-interface AlertState {
-  message: string;
-  type: 'default' | 'info' | 'success' | 'error';
-}
 
 const SERVER_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
 
 export default function Home() {
-  // State
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [token, setToken] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [newNotification, setNewNotification] = useState({ title: '', body: '' });
   const [alert, setAlert] = useState<AlertState | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [currentUser, setCurrentUser] = useState<number | null>(null);
 
-  // WebSocket connection
   const connectWebSocket = useCallback(() => {
     if (!token) return;
 
-    const ws = new WebSocket(`${WS_URL}/ws/notifications?token=${token}`);
+    const ws = new WebSocket(`${WS_URL}/ws/messages?token=${token}`);
     
     ws.onmessage = (event) => {
-      const notification = JSON.parse(event.data);
-      setNotifications(prev => [notification, ...prev]);
-      
-      // Browser notification
-      if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification(notification.title, { body: notification.body });
-      }
+      const message = JSON.parse(event.data);
+      setMessages(prev => [message, ...prev]);
     };
 
     ws.onclose = () => {
-      // Attempt to reconnect after 5 seconds
       setTimeout(connectWebSocket, 5000);
     };
 
     return () => ws.close();
   }, [token]);
 
-  // Effects
   useEffect(() => {
-    // Check for stored token
     const storedToken = localStorage.getItem('token');
     if (storedToken) {
       setToken(storedToken);
       setIsLoggedIn(true);
-      fetchNotifications(storedToken);
+      fetchMessages(storedToken);
     }
   }, []);
 
   useEffect(() => {
     if (token) {
       connectWebSocket();
-      
-      // Request notification permission
-      if ('Notification' in window && Notification.permission === 'default') {
-        Notification.requestPermission();
-      }
     }
   }, [token, connectWebSocket]);
 
-  // Utility functions
   const showAlert = (message: string, type: AlertState['type'] = 'info') => {
     setAlert({ message, type });
     setTimeout(() => setAlert(null), 5000);
   };
 
-  const fetchNotifications = async (authToken: string) => {
+  const fetchMessages = async (authToken: string) => {
     try {
-      const response = await fetch(`${SERVER_URL}/notifications`, {
-        headers: { 'Authorization': `Bearer ${authToken}` },
+      const response = await fetch(`${SERVER_URL}/messages`, {
+        headers: { Authorization: `Bearer ${authToken}` }
       });
       if (response.ok) {
         const data = await response.json();
-        setNotifications(data);
+        setMessages(data);
       } else {
-        throw new Error('Failed to fetch notifications');
+        throw new Error('Failed to fetch messages');
       }
     } catch (error) {
-      showAlert('Failed to fetch notifications', 'error');
+      showAlert('Failed to fetch messages', 'error');
     }
   };
 
-  // Auth handlers
   const handleAuth = async (isRegistering = false) => {
     setIsLoading(true);
     try {
@@ -114,9 +89,10 @@ export default function Home() {
       if (response.ok) {
         setToken(data.token);
         setIsLoggedIn(true);
+        setCurrentUser(data.userId);
         localStorage.setItem('token', data.token);
         showAlert(`Successfully ${isRegistering ? 'registered' : 'logged in'}!`, 'success');
-        await fetchNotifications(data.token);
+        await fetchMessages(data.token);
       } else {
         showAlert(data.error || 'Authentication failed', 'error');
       }
@@ -130,35 +106,35 @@ export default function Home() {
   const handleLogout = () => {
     setToken('');
     setIsLoggedIn(false);
-    setNotifications([]);
+    setMessages([]);
+    setCurrentUser(null);
     localStorage.removeItem('token');
     showAlert('Logged out successfully', 'info');
   };
 
-  // Notification handlers
-  const sendNotification = async () => {
-    if (!newNotification.title || !newNotification.body) {
-      showAlert('Please fill in both title and message', 'error');
-      return;
-    }
-
+  const sendMessage = async (body: string, files?: FileList | null) => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${SERVER_URL}/notifications`, {
+      const formData = new FormData();
+      formData.append('body', body);
+      
+      if (files) {
+        Array.from(files).forEach(file => {
+          formData.append('attachments', file);
+        });
+      }
+
+      const response = await fetch(`${SERVER_URL}/messages`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(newNotification),
+        body: formData,
       });
 
-      if (response.ok) {
-        setNewNotification({ title: '', body: '' });
-        showAlert('Notification sent!', 'success');
-      } else {
+      if (!response.ok) {
         const data = await response.json();
-        throw new Error(data.error || 'Failed to send notification');
+        throw new Error(data.error || 'Failed to send message');
       }
     } catch (error) {
       showAlert(error instanceof Error ? error.message : 'Network error', 'error');
@@ -167,126 +143,49 @@ export default function Home() {
     }
   };
 
-  // Auth form
   if (!isLoggedIn) {
     return (
-      <div className="min-h-screen bg-gray-100 p-4">
-        <div className="max-w-md mx-auto bg-white rounded-lg shadow-md p-6">
-          <h1 className="text-2xl font-bold mb-6 text-center">Notifi</h1>
-          {alert && (
-            <Alert variant={alert.type} className="mb-4">
-              <AlertDescription>{alert.message}</AlertDescription>
-            </Alert>
-          )}
-          <div className="space-y-4">
-            <input
-              type="email"
-              placeholder="Email"
-              className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              disabled={isLoading}
-            />
-            <input
-              type="password"
-              placeholder="Password"
-              className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              disabled={isLoading}
-            />
-            <div className="flex space-x-4">
-              <button
-                onClick={() => handleAuth(false)}
-                disabled={isLoading}
-                className="flex-1 flex items-center justify-center px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
-              >
-                <LogIn className="w-4 h-4 mr-2" /> Login
-              </button>
-              <button
-                onClick={() => handleAuth(true)}
-                disabled={isLoading}
-                className="flex-1 flex items-center justify-center px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50"
-              >
-                <UserPlus className="w-4 h-4 mr-2" /> Register
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
+      <AuthForm
+        onAuth={handleAuth}
+        email={email}
+        setEmail={setEmail}
+        password={password}
+        setPassword={setPassword}
+        alert={alert}
+        isLoading={isLoading}
+      />
     );
   }
 
-  // Main app
   return (
-    <div className="min-h-screen bg-gray-100 p-4">
-      <div className="max-w-2xl mx-auto space-y-4">
-        {alert && (
-          <Alert variant={alert.type}>
-            <AlertDescription>{alert.message}</AlertDescription>
-          </Alert>
-        )}
-
-        <div className="flex justify-between items-center bg-white rounded-lg shadow-md p-4">
-          <h1 className="text-2xl font-bold">Notifi</h1>
-          <button
-            onClick={handleLogout}
-            className="flex items-center px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
-          >
-            <LogOut className="w-4 h-4 mr-2" /> Logout
-          </button>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-bold mb-4">Send Notification</h2>
-          <div className="space-y-4">
-            <input
-              type="text"
-              placeholder="Title"
-              className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={newNotification.title}
-              onChange={(e) => setNewNotification(prev => ({ ...prev, title: e.target.value }))}
-              disabled={isLoading}
-            />
-            <textarea
-              placeholder="Message"
-              className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={newNotification.body}
-              onChange={(e) => setNewNotification(prev => ({ ...prev, body: e.target.value }))}
-              disabled={isLoading}
-              rows={3}
-            />
-            <button
-              onClick={sendNotification}
-              disabled={isLoading}
-              className="flex items-center px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
-            >
-              <Send className="w-4 h-4 mr-2" /> Send
-            </button>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-bold mb-4 flex items-center">
-            <Bell className="w-6 h-6 mr-2" /> Notifications
-          </h2>
-          <div className="space-y-4">
-            {notifications.length === 0 ? (
-              <p className="text-gray-500 text-center py-4">No notifications yet</p>
-            ) : (
-              notifications.map(notif => (
-                <div key={notif.id} className="border-b pb-4">
-                  <h3 className="font-semibold">{notif.title}</h3>
-                  <p className="text-gray-600">{notif.body}</p>
-                  <span className="text-sm text-gray-400">
-                    {new Date(notif.timestamp).toLocaleString()}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
+    <div className="flex flex-col h-screen bg-gray-100">
+      <div className="flex justify-between items-center bg-white shadow-sm p-4">
+        <h1 className="text-xl font-bold">Chat App</h1>
+        <button
+          onClick={handleLogout}
+          className="flex items-center px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+        >
+          <LogOut className="w-4 h-4 mr-2" /> Logout
+        </button>
       </div>
+
+      {alert && (
+        <Alert variant={alert.type} className="m-4">
+          <AlertDescription>{alert.message}</AlertDescription>
+        </Alert>
+      )}
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {messages.map((message) => (
+          <MessageBubble
+            key={message.id}
+            message={message}
+            isCurrentUser={message.user_id === currentUser}
+          />
+        ))}
+      </div>
+
+      <MessageInput onSend={sendMessage} disabled={isLoading} />
     </div>
   );
 }

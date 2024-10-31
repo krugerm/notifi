@@ -4,6 +4,8 @@ import { config } from "dotenv";
 import express from "express";
 import { createServer } from "http";
 import jwt from "jsonwebtoken";
+import multer from "multer";
+import path from "path";
 import { open } from "sqlite";
 import sqlite3 from "sqlite3";
 import { WebSocketServer } from "ws";
@@ -19,14 +21,38 @@ const wss = new WebSocketServer({ server: httpServer });
 // Constants
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
 const PORT = process.env.PORT || 8000;
+const UPLOAD_DIR = "./uploads";
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: UPLOAD_DIR,
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  },
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ["image/jpeg", "image/png", "image/gif", "application/pdf"];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Invalid file type"));
+    }
+  },
+});
 
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use("/uploads", express.static(UPLOAD_DIR));
 
 // Database setup
 const dbPromise = open({
-  filename: "./notifi.db",
+  filename: "./chat.db",
   driver: sqlite3.Database,
 });
 
@@ -40,13 +66,22 @@ async function initDb() {
       password TEXT,
       reset_token TEXT
     );
-    CREATE TABLE IF NOT EXISTS notifications (
+    
+    CREATE TABLE IF NOT EXISTS messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER,
-      title TEXT,
       body TEXT,
       timestamp TEXT,
       FOREIGN KEY(user_id) REFERENCES users(id)
+    );
+    
+    CREATE TABLE IF NOT EXISTS attachments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      message_id INTEGER,
+      filename TEXT,
+      mimetype TEXT,
+      path TEXT,
+      FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
     );
   `);
 }
@@ -57,8 +92,7 @@ const UserSchema = z.object({
   password: z.string().min(6),
 });
 
-const NotificationSchema = z.object({
-  title: z.string(),
+const MessageSchema = z.object({
   body: z.string(),
 });
 
@@ -110,9 +144,7 @@ app.post("/users/register", async (req, res) => {
     const db = await dbPromise;
 
     const hashedPassword = await bcrypt.hash(password, 10);
-
     const result = await db.run("INSERT INTO users (email, password) VALUES (?, ?)", [email, hashedPassword]);
-
     const token = jwt.sign({ userId: result.lastID }, JWT_SECRET);
     res.json({ token });
   } catch (error) {
@@ -130,7 +162,6 @@ app.post("/users/login", async (req, res) => {
     const db = await dbPromise;
 
     const user = await db.get("SELECT id, password FROM users WHERE email = ?", [email]);
-
     if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
@@ -146,81 +177,69 @@ app.post("/users/login", async (req, res) => {
   }
 });
 
-app.post("/users/reset-password-request", async (req, res) => {
+app.post("/messages", authenticate, upload.array("attachments"), async (req, res) => {
   try {
-    const { email } = z.object({ email: z.string().email() }).parse(req.body);
-    const db = await dbPromise;
-
-    const resetToken = crypto.randomBytes(32).toString("hex");
-    await db.run("UPDATE users SET reset_token = ? WHERE email = ?", [resetToken, email]);
-
-    // In production, send email with reset token
-    res.json({ message: "If an account exists, a reset email has been sent" });
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      res.status(400).json({ error: error.errors });
-    } else {
-      res.status(500).json({ error: "Server error" });
-    }
-  }
-});
-
-app.post("/users/reset-password", async (req, res) => {
-  try {
-    const { token, newPassword } = z
-      .object({
-        token: z.string(),
-        newPassword: z.string().min(6),
-      })
-      .parse(req.body);
-
-    const db = await dbPromise;
-    const user = await db.get("SELECT id FROM users WHERE reset_token = ?", [token]);
-
-    if (!user) {
-      return res.status(400).json({ error: "Invalid token" });
-    }
-
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-    await db.run("UPDATE users SET password = ?, reset_token = NULL WHERE id = ?", [hashedPassword, user.id]);
-
-    res.json({ message: "Password updated successfully" });
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      res.status(400).json({ error: error.errors });
-    } else {
-      res.status(500).json({ error: "Server error" });
-    }
-  }
-});
-
-app.post("/notifications", authenticate, async (req, res) => {
-  try {
-    const { title, body } = NotificationSchema.parse(req.body);
+    const { body } = MessageSchema.parse(req.body);
     const db = await dbPromise;
     const timestamp = new Date().toISOString();
+    const files = req.files as Express.Multer.File[];
 
-    const result = await db.run("INSERT INTO notifications (user_id, title, body, timestamp) VALUES (?, ?, ?, ?)", [
-      req.user!.id,
-      title,
-      body,
-      timestamp,
-    ]);
+    // Start a transaction
+    await db.run("BEGIN TRANSACTION");
 
-    const notification = {
-      id: result.lastID,
-      title,
-      body,
-      timestamp,
-    };
+    try {
+      // Insert message
+      const messageResult = await db.run(
+        "INSERT INTO messages (user_id, body, timestamp) VALUES (?, ?, ?)",
+        [req.user!.id, body, timestamp]
+      );
 
-    // Send real-time notification via WebSocket
-    const ws = connections.get(req.user!.id);
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(notification));
+      // Insert attachments if any
+      if (files && files.length > 0) {
+        for (const file of files) {
+          await db.run(
+            "INSERT INTO attachments (message_id, filename, mimetype, path) VALUES (?, ?, ?, ?)",
+            [messageResult.lastID, file.originalname, file.mimetype, file.filename]
+          );
+        }
+      }
+
+      await db.run("COMMIT");
+
+      // Fetch the complete message with attachments
+      const message = await db.get(
+        `SELECT m.*, u.email as user_email
+         FROM messages m
+         JOIN users u ON m.user_id = u.id
+         WHERE m.id = ?`,
+        [messageResult.lastID]
+      );
+
+      const attachments = await db.all(
+        "SELECT id, filename, mimetype, path FROM attachments WHERE message_id = ?",
+        [messageResult.lastID]
+      );
+
+      const completeMessage = {
+        ...message,
+        attachments: attachments.map(att => ({
+          ...att,
+          url: `/uploads/${att.path}`,
+        })),
+      };
+
+      // Broadcast to all connected users
+      connections.forEach(ws => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify(completeMessage));
+        }
+      });
+
+      res.json(completeMessage);
+    } catch (error) {
+      await db.run("ROLLBACK");
+      throw error;
     }
-
-    res.json({ notificationId: result.lastID });
   } catch (error) {
     if (error instanceof z.ZodError) {
       res.status(400).json({ error: error.errors });
@@ -230,17 +249,34 @@ app.post("/notifications", authenticate, async (req, res) => {
   }
 });
 
-app.get("/notifications", authenticate, async (req, res) => {
+app.get("/messages", authenticate, async (req, res) => {
   try {
     const db = await dbPromise;
-    const notifications = await db.all(
-      `SELECT id, title, body, timestamp 
-       FROM notifications 
-       WHERE user_id = ? 
-       ORDER BY timestamp DESC`,
-      [req.user!.id]
+    const messages = await db.all(
+      `SELECT m.*, u.email as user_email
+       FROM messages m
+       JOIN users u ON m.user_id = u.id
+       ORDER BY m.timestamp DESC`
     );
-    res.json(notifications);
+
+    // Fetch attachments for each message
+    const messagesWithAttachments = await Promise.all(
+      messages.map(async (message) => {
+        const attachments = await db.all(
+          "SELECT id, filename, mimetype, path FROM attachments WHERE message_id = ?",
+          [message.id]
+        );
+        return {
+          ...message,
+          attachments: attachments.map(att => ({
+            ...att,
+            url: `/uploads/${att.path}`,
+          })),
+        };
+      })
+    );
+
+    res.json(messagesWithAttachments);
   } catch (error) {
     res.status(500).json({ error: "Server error" });
   }
