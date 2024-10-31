@@ -12,7 +12,26 @@ import sqlite3 from "sqlite3";
 import WebSocket, { WebSocketServer } from "ws";
 import { z } from "zod";
 
-// Configure upload directory
+
+const debug = {
+  log: (...args: any[]) => {
+    console.log(new Date().toISOString(), ...args);
+  },
+  error: (...args: any[]) => {
+    console.error(new Date().toISOString(), ...args);
+  }
+};
+
+const mimeTypes: { [key: string]: string } = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.gif': 'image/gif',
+  '.pdf': 'application/pdf',
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.txt': 'text/plain'
+};
 
 // Load environment variables
 config();
@@ -25,7 +44,11 @@ const wss = new WebSocketServer({ server: httpServer });
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
 const PORT = process.env.PORT || 8000;
 
+const BACKEND_URL = process.env.BACKEND_URL || `http://localhost:${PORT}`;
+debug.log('Backend URL configured as:', BACKEND_URL);
+
 const UPLOAD_DIR = path.join(__dirname, '../uploads');
+debug.log('Upload directory configured as:', UPLOAD_DIR);
 
 // Ensure upload directory exists
 if (!fs.existsSync(UPLOAD_DIR)) {
@@ -35,38 +58,31 @@ if (!fs.existsSync(UPLOAD_DIR)) {
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
+    debug.log('Saving file to:', UPLOAD_DIR);
     cb(null, UPLOAD_DIR);
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname) || '';
-    cb(null, uniqueSuffix + ext);
+    const ext = path.extname(file.originalname);
+    const filename = uniqueSuffix + ext;
+    debug.log('Generated filename:', filename, 'for original file:', file.originalname);
+    cb(null, filename);
   }
 });
 
-const upload = multer({
+const upload = multer({ 
   storage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
 });
 
-// restrict file types
-// const upload = multer({
-//   storage,
-//   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
-//   fileFilter: (req, file, cb) => {
-//     const allowedTypes = ["image/jpeg", "image/png", "image/gif", "application/pdf"];
-//     if (allowedTypes.includes(file.mimetype)) {
-//       cb(null, true);
-//     } else {
-//       cb(new Error("Invalid file type"));
-//     }
-//   },
-// });
-
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use("/uploads", express.static(UPLOAD_DIR));
+
+app.use((req, res, next) => {
+  debug.log('Incoming request:', req.method, req.url, 'Headers:', req.headers);
+  next();
+});
 
 // Database setup
 const dbPromise = open({
@@ -246,6 +262,7 @@ app.post("/messages", authenticate, upload.array("attachments"), async (req, res
         ...message,
         attachments: attachments.map(att => ({
           ...att,
+          // url: `${BACKEND_URL}/uploads/${att.path}`,
           url: `/uploads/${att.path}`,
         })),
       };
@@ -296,6 +313,7 @@ app.get("/messages", authenticate, async (req, res) => {
           ...message,
           attachments: attachments.map(att => ({
             ...att,
+            // url: `${BACKEND_URL}/uploads/${att.path}`,
             url: `/uploads/${att.path}`,
           })),
         };
@@ -308,16 +326,65 @@ app.get("/messages", authenticate, async (req, res) => {
   }
 });
 
+app.use('/uploads', (req, res, next) => {
+  const requestedFile = path.basename(req.url);
+  const filePath = path.join(UPLOAD_DIR, requestedFile);
+  
+  debug.log('File request:', {
+    requestUrl: req.url,
+    requestedFile,
+    fullPath: filePath,
+    exists: fs.existsSync(filePath)
+  });
+
+  // Security check - prevent directory traversal
+  if (!filePath.startsWith(UPLOAD_DIR)) {
+    debug.error('Security: Attempted path traversal:', filePath);
+    return res.status(403).json({ error: 'Invalid file path' });
+  }
+
+  // Check if file exists
+  if (!fs.existsSync(filePath)) {
+    debug.error('File not found:', filePath);
+    return res.status(404).json({ error: 'File not found' });
+  }
+
+  // Set content type
+  const ext = path.extname(filePath).toLowerCase();
+
+  const contentType = mimeTypes[ext] || 'application/octet-stream';
+  res.setHeader('Content-Type', contentType);
+  debug.log('Serving file:', {
+    path: filePath,
+    contentType,
+    size: fs.statSync(filePath).size
+  });
+
+  // Stream the file
+  const stream = fs.createReadStream(filePath);
+  stream.on('error', (error) => {
+    debug.error('Error streaming file:', error);
+    res.status(500).json({ error: 'Error streaming file' });
+  });
+
+  stream.pipe(res);
+});
+
 // Initialize database and start server
 initDb()
-  .then(() => {
-    httpServer.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
+.then(() => {
+  httpServer.listen(PORT, () => {
+    debug.log(`Server running on port ${PORT}`);
+    debug.log('Server configuration:', {
+      uploadDir: UPLOAD_DIR,
+      maxFileSize: '10MB',
+      // supportedMimeTypes: Object.keys(mimeTypes)
     });
-  })
-  .catch((error) => {
-    console.error("Failed to initialize database:", error);
-    process.exit(1);
   });
+})
+.catch((error) => {
+  debug.error('Failed to initialize database:', error);
+  process.exit(1);
+});
 
 export default app;

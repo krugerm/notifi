@@ -12,6 +12,11 @@ import { useCallback, useEffect, useState } from 'react';
 const SERVER_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
 
+const getBackendUrl = () => {
+  // Default to the SERVER_URL without the ws:// prefix
+  return SERVER_URL;
+};
+
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoggedIn, setIsLoggedIn] = useState(false);

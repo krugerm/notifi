@@ -1,5 +1,5 @@
 // src/components/chat/MessageInput.tsx
-import { Paperclip, Send, X } from 'lucide-react';
+import { FileIcon, FileText, Image, Paperclip, Send, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 interface MessageInputProps {
@@ -8,8 +8,10 @@ interface MessageInputProps {
 }
 
 interface AttachmentPreview {
+  file: File;
   name: string;
   size: string;
+  type: string;
 }
 
 export const MessageInput = ({ onSend, disabled }: MessageInputProps) => {
@@ -25,48 +27,51 @@ export const MessageInput = ({ onSend, disabled }: MessageInputProps) => {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
-  const updateAttachments = (files: FileList | null) => {
-    if (!files) {
-      setAttachments([]);
-      return;
-    }
+  const getFileIcon = (type: string) => {
+    if (type.startsWith('image/')) return <Image className="w-4 h-4" />;
+    if (type.includes('pdf')) return <FileText className="w-4 h-4" />;
+    return <FileIcon className="w-4 h-4" />;
+  };
 
-    const previews: AttachmentPreview[] = Array.from(files).map(file => ({
+  const addAttachments = (files: FileList) => {
+    const newAttachments = Array.from(files).map(file => ({
+      file,
       name: file.name,
-      size: formatFileSize(file.size)
+      size: formatFileSize(file.size),
+      type: file.type
     }));
-    setAttachments(previews);
+
+    setAttachments(prev => [...prev, ...newAttachments]);
+  };
+
+  const removeAttachment = (index: number) => {
+    setAttachments(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    updateAttachments(e.target.files);
-  };
-
-  const clearAttachments = () => {
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+    if (e.target.files?.length) {
+      addAttachments(e.target.files);
     }
-    setAttachments([]);
+    // Reset file input to allow selecting the same file again
+    e.target.value = '';
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (message.trim() && !isSending) {
       setIsSending(true);
-      let success = false;
-      try {
-        success = await onSend(message.trim(), fileInputRef.current?.files);
-      }
-      catch {
-      }
-      finally
-      {
-        setIsSending(false);
-      }
+      
+      // Create a new FileList-like object from the attachment files
+      const fileArray = attachments.map(att => att.file);
+      const fileList = new DataTransfer();
+      fileArray.forEach(file => fileList.items.add(file));
+      
+      const success = await onSend(message.trim(), fileList.files);
+      setIsSending(false);
       
       if (success) {
         setMessage('');
-        clearAttachments();
+        setAttachments([]);
       }
     }
   };
@@ -76,6 +81,21 @@ export const MessageInput = ({ onSend, disabled }: MessageInputProps) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
       e.preventDefault();
       handleSubmit(e);
+    }
+  };
+
+  // Handle drag and drop
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (e.dataTransfer.files?.length) {
+      addAttachments(e.dataTransfer.files);
     }
   };
 
@@ -96,15 +116,15 @@ export const MessageInput = ({ onSend, disabled }: MessageInputProps) => {
           {attachments.map((file, index) => (
             <div
               key={index}
-              className="flex items-center gap-2 bg-gray-100 rounded-full px-3 py-1 text-sm"
+              className="flex items-center gap-2 bg-gray-100 rounded-full px-3 py-1 text-sm group"
             >
-              <Paperclip className="w-4 h-4 text-gray-500" />
+              {getFileIcon(file.type)}
               <span className="truncate max-w-[150px]">{file.name}</span>
               <span className="text-gray-500 text-xs">({file.size})</span>
               <button
                 type="button"
-                onClick={clearAttachments}
-                className="text-gray-400 hover:text-gray-600"
+                onClick={() => removeAttachment(index)}
+                className="text-gray-400 hover:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -114,7 +134,12 @@ export const MessageInput = ({ onSend, disabled }: MessageInputProps) => {
       )}
 
       {/* Input Form */}
-      <form onSubmit={handleSubmit} className="flex items-stretch gap-2">
+      <form 
+        onSubmit={handleSubmit} 
+        className="flex items-stretch gap-2"
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+      >
         <input
           type="file"
           ref={fileInputRef}
@@ -135,7 +160,9 @@ export const MessageInput = ({ onSend, disabled }: MessageInputProps) => {
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Type a message... (Cmd/Ctrl + Enter to send)"
+          placeholder={`Type a message... ${
+            navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'
+          } + Enter to send`}
           className="flex-1 p-3 border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px] max-h-[150px]"
           disabled={disabled || isSending}
         />
