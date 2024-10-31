@@ -2,14 +2,17 @@ import bcrypt from "bcryptjs";
 import cors from "cors";
 import { config } from "dotenv";
 import express from "express";
+import fs from 'fs';
 import { createServer } from "http";
 import jwt from "jsonwebtoken";
 import multer from "multer";
 import path from "path";
 import { open } from "sqlite";
 import sqlite3 from "sqlite3";
-import { WebSocketServer } from "ws";
+import WebSocket, { WebSocketServer } from "ws";
 import { z } from "zod";
+
+// Configure upload directory
 
 // Load environment variables
 config();
@@ -21,29 +24,44 @@ const wss = new WebSocketServer({ server: httpServer });
 // Constants
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
 const PORT = process.env.PORT || 8000;
-const UPLOAD_DIR = "./uploads";
+
+const UPLOAD_DIR = path.join(__dirname, '../uploads');
+
+// Ensure upload directory exists
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+}
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
-  destination: UPLOAD_DIR,
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
+  destination: (req, file, cb) => {
+    cb(null, UPLOAD_DIR);
   },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname) || '';
+    cb(null, uniqueSuffix + ext);
+  }
 });
 
 const upload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
-  fileFilter: (req, file, cb) => {
-    const allowedTypes = ["image/jpeg", "image/png", "image/gif", "application/pdf"];
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error("Invalid file type"));
-    }
-  },
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
 });
+
+// restrict file types
+// const upload = multer({
+//   storage,
+//   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+//   fileFilter: (req, file, cb) => {
+//     const allowedTypes = ["image/jpeg", "image/png", "image/gif", "application/pdf"];
+//     if (allowedTypes.includes(file.mimetype)) {
+//       cb(null, true);
+//     } else {
+//       cb(new Error("Invalid file type"));
+//     }
+//   },
+// });
 
 // Middleware
 app.use(cors());
@@ -206,7 +224,7 @@ app.post("/messages", authenticate, upload.array("attachments"), async (req, res
 
       await db.run("COMMIT");
 
-      // Fetch the complete message with attachments
+      // Fetch the complete message with user info and attachments
       const message = await db.get(
         `SELECT m.*, u.email as user_email
          FROM messages m
@@ -214,6 +232,10 @@ app.post("/messages", authenticate, upload.array("attachments"), async (req, res
          WHERE m.id = ?`,
         [messageResult.lastID]
       );
+
+      if (!message) {
+        throw new Error("Message not found after insertion");
+      }
 
       const attachments = await db.all(
         "SELECT id, filename, mimetype, path FROM attachments WHERE message_id = ?",
@@ -235,16 +257,20 @@ app.post("/messages", authenticate, upload.array("attachments"), async (req, res
         }
       });
 
-      res.json(completeMessage);
+      res.status(201).json(completeMessage);
     } catch (error) {
       await db.run("ROLLBACK");
       throw error;
     }
   } catch (error) {
+    console.error("Error in /messages POST:", error);
     if (error instanceof z.ZodError) {
       res.status(400).json({ error: error.errors });
     } else {
-      res.status(500).json({ error: "Server error" });
+      res.status(500).json({ 
+        error: "Server error", 
+        details: error instanceof Error ? error.message : "Unknown error" 
+      });
     }
   }
 });
