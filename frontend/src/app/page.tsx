@@ -7,6 +7,7 @@ import { JumpToBottomButton } from '@/components/chat/JumpToBottomButton';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { MessageInput } from '@/components/chat/MessageInput';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { debug } from '@/utils/debug';
 import { Loader2, LogOut } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useWebSocket } from '../hooks/useWebSocket';
@@ -99,10 +100,16 @@ export default function Home() {
   };
 
   const scrollToBottom = useCallback((scrollBehavior: ScrollBehavior = 'smooth'): void => {
-    messagesEndReference.current?.scrollIntoView({ behavior: scrollBehavior });
-    setUnreadCount(0);
-    if (messages && messages.length > 0) {
-      lastReadTimestampReference.current = messages[messages.length - 1]?.timestamp ?? null;
+    if (!messagesEndReference.current) return;
+    
+    try {
+      messagesEndReference.current.scrollIntoView({ behavior: scrollBehavior });
+      setUnreadCount(0);
+      if (messages.length > 0) {
+        lastReadTimestampReference.current = messages[messages.length - 1].timestamp;
+      }
+    } catch (error) {
+      debug.error('Error scrolling to bottom:', error);
     }
   }, [messages]);
 
@@ -260,12 +267,17 @@ export default function Home() {
     }));
   }, [deviceId, browserInfo]);
 
-  // Effect for initial scroll to bottom
   useEffect(() => {
-    if (messages && messages.length > 0 && !nextCursor) {
-      scrollToBottom('auto');
+    // Scroll on initial load or when messages first arrive
+    if (messages.length > 0) {
+      // Use a small timeout to ensure DOM is ready
+      const timeoutId = setTimeout(() => {
+        scrollToBottom('auto');
+      }, 100);
+      
+      return () => clearTimeout(timeoutId);
     }
-  }, [messages, nextCursor, scrollToBottom]);
+  }, [messages.length]);
 
   // Effect for scroll event listener
   useEffect(() => {

@@ -18,7 +18,7 @@ interface BrowserInfo {
 
 const getBrowserInfo = (): BrowserInfo => {
   // Detect browser
-  const userAgent = navigator.userAgent;
+  const userAgent = navigator?.userAgent ?? '';
   let browser = 'Unknown';
   if (userAgent.includes('Firefox/')) {
     browser = 'Firefox';
