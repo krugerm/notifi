@@ -1,103 +1,176 @@
 // src/app/page.tsx
 "use client";
 
-import { AuthForm } from '@/components/auth/AuthForm';
+import { ChatSettings } from '@/components/chat/ChatSettings';
+import { DateSeparator } from '@/components/chat/DateSeparator';
+import { JumpToBottomButton } from '@/components/chat/JumpToBottomButton';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { MessageInput } from '@/components/chat/MessageInput';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { AlertState, Message } from '@/types/chat';
-import { LogOut } from 'lucide-react';
+import { Loader2, LogOut } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useWebSocket } from '../hooks/useWebSocket';
+
+interface Message {
+  id: number;
+  body: string;
+  timestamp: string;
+  user_id: number;
+  user_email: string;
+  attachments: Array<{
+    id: number;
+    filename: string;
+    mimetype: string;
+    url: string;
+  }>;
+}
+
+interface MessageResponse {
+  messages: Message[];
+  hasMore: boolean;
+  nextCursor: string | null;
+}
+
+interface AlertState {
+  message: string;
+  type: "default" | "info" | "success" | "error";
+}
 
 const SERVER_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
-
-const getBackendUrl = () => {
-  // Default to the SERVER_URL without the ws:// prefix
-  return SERVER_URL;
-};
 
 export default function Home() {
+  // State management
   const [messages, setMessages] = useState<Message[]>([]);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [token, setToken] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
+  const [token, setToken] = useState<string>('');
+  const [email, setEmail] = useState<string>('');
+  const [password, setPassword] = useState<string>('');
   const [alert, setAlert] = useState<AlertState | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [currentUser, setCurrentUser] = useState<number | null>(null);
+  const [batchSize, setBatchSize] = useState<number>(20);
+  const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
+  const [hasMore, setHasMore] = useState<boolean>(true);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [unreadCount, setUnreadCount] = useState<number>(0);
+  const [isNearBottom, setIsNearBottom] = useState<boolean>(true);
+  const [connectionInfo, setConnectionInfo] = useState<{
+    connected: boolean;
+    deviceId: string;
+    browserInfo: BrowserInfo | null;
+  }>({
+    connected: false,
+    deviceId: '',
+    browserInfo: null
+  });
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Refs for DOM elements and state tracking
+  const messagesContainerReference = useRef<HTMLDivElement>(null);
+  const messagesEndReference = useRef<HTMLDivElement>(null);
+  const lastReadTimestampReference = useRef<string | null>(null);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-  
-  // Add effect to scroll to bottom when messages change
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
-  const connectWebSocket = useCallback(() => {
-    if (!token) return;
-
-    const ws = new WebSocket(`${WS_URL}/ws/messages?token=${token}`);
-    
-    ws.onmessage = (event) => {
-      const message = JSON.parse(event.data);
-      // Add new message to the end of the array
+  const { isConnected, deviceId, browserInfo, reconnect } = useWebSocket(token, {
+    onMessage: (message) => {
+      // debug.log('Received message:', message);
       setMessages(prev => [...prev, message]);
-    };
-
-    ws.onclose = () => {
-      setTimeout(connectWebSocket, 5000);
-    };
-
-    return () => ws.close();
-  }, [token]);
-
-  useEffect(() => {
-    const storedToken = localStorage.getItem('token');
-    if (storedToken) {
-      setToken(storedToken);
-      setIsLoggedIn(true);
-      fetchMessages(storedToken);
+      
+      if (!isNearBottom) {
+        setUnreadCount(prev => prev + 1);
+      } else {
+        lastReadTimestampReference.current = message.timestamp;
+      }
+    },
+    onConnectionChange: (connected) => {
+      setConnectionInfo(prev => ({
+        ...prev,
+        connected
+      }));
     }
-  }, []);
+  });
 
-  useEffect(() => {
-    if (token) {
-      connectWebSocket();
-    }
-  }, [token, connectWebSocket]);
-
-  const showAlert = (message: string, type: AlertState['type'] = 'info') => {
+  const showAlert = (message: string, type: AlertState['type'] = 'info'): void => {
     setAlert({ message, type });
     setTimeout(() => setAlert(null), 5000);
   };
 
-  const fetchMessages = async (authToken: string) => {
-    try {
-      const response = await fetch(`${SERVER_URL}/messages`, {
-        headers: { Authorization: `Bearer ${authToken}` }
+  const areDatesOnDifferentDays = (firstDate: string | undefined, secondDate: string | undefined): boolean => {
+    if (!firstDate || !secondDate) return true;
+    return new Date(firstDate).toDateString() !== new Date(secondDate).toDateString();
+  };
+
+  const scrollToBottom = useCallback((scrollBehavior: ScrollBehavior = 'smooth'): void => {
+    messagesEndReference.current?.scrollIntoView({ behavior: scrollBehavior });
+    setUnreadCount(0);
+    if (messages && messages.length > 0) {
+      lastReadTimestampReference.current = messages[messages.length - 1]?.timestamp ?? null;
+    }
+  }, [messages]);
+
+  const handleScroll = useCallback((): void => {
+    const container = messagesContainerReference.current;
+    if (!container) return;
+
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    const isCloseToBottom = distanceFromBottom < 100;
+    setIsNearBottom(isCloseToBottom);
+
+    if (isCloseToBottom) {
+      setUnreadCount(0);
+      lastReadTimestampReference.current = messages && messages.length > 0 ? messages[messages.length - 1]?.timestamp ?? null : null;
+    }
+
+    const isCloseToTop = container.scrollTop < 100;
+    if (isCloseToTop && !isLoadingMore && hasMore && nextCursor) {
+      setIsLoadingMore(true);
+      const currentScrollHeight = container.scrollHeight;
+      
+      fetchMessages(token, nextCursor, batchSize).then(() => {
+        requestAnimationFrame(() => {
+          if (container) {
+            container.scrollTop = container.scrollHeight - currentScrollHeight;
+          }
+        });
+        setIsLoadingMore(false);
       });
+    }
+  }, [isLoadingMore, hasMore, nextCursor, token, messages, batchSize]);
+
+  const fetchMessages = async (authenticationToken: string, cursor?: string, limit: number = batchSize): Promise<void> => {
+    try {
+      const requestUrl = new URL(`${SERVER_URL}/messages`);
+      requestUrl.searchParams.append('limit', limit.toString());
+      if (cursor) {
+        requestUrl.searchParams.append('before', cursor);
+      }
+
+      const response = await fetch(requestUrl.toString(), {
+        headers: { Authorization: `Bearer ${authenticationToken}` }
+      });
+
       if (response.ok) {
-        const data = await response.json();
-        setMessages(data.sort((a: Message, b: Message) => 
-          new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-        ));
-        setMessages(data);
+        const responseData: MessageResponse = await response.json();
+        if (cursor) {
+          setMessages(previousMessages => [...responseData.messages, ...previousMessages]);
+        } else {
+          setMessages(responseData.messages);
+          if (responseData.messages.length > 0) {
+            lastReadTimestampReference.current = responseData.messages[responseData.messages.length - 1]?.timestamp ?? null;
+          }
+          else{
+            lastReadTimestampReference.current = null;
+          }
+        }
+        setHasMore(responseData.hasMore);
+        setNextCursor(responseData.nextCursor);
       } else {
         throw new Error('Failed to fetch messages');
       }
-      return true;
     } catch (error) {
-      showAlert(error instanceof Error ? error.message : 'Network error', 'error');
-      return false;
+      showAlert('Failed to fetch messages', 'error');
     }
   };
 
-  const handleAuth = async (isRegistering = false) => {
+  const handleAuthentication = async (isRegistering: boolean = false): Promise<void> => {
     setIsLoading(true);
     try {
       const response = await fetch(`${SERVER_URL}/users/${isRegistering ? 'register' : 'login'}`, {
@@ -106,17 +179,17 @@ export default function Home() {
         body: JSON.stringify({ email, password }),
       });
 
-      const data = await response.json();
+      const responseData = await response.json();
 
       if (response.ok) {
-        setToken(data.token);
+        setToken(responseData.token);
         setIsLoggedIn(true);
-        setCurrentUser(data.userId);
-        localStorage.setItem('token', data.token);
+        setCurrentUser(responseData.userId);
+        localStorage.setItem('token', responseData.token);
         showAlert(`Successfully ${isRegistering ? 'registered' : 'logged in'}!`, 'success');
-        await fetchMessages(data.token);
+        await fetchMessages(responseData.token);
       } else {
-        showAlert(data.error || 'Authentication failed', 'error');
+        showAlert(responseData.error || 'Authentication failed', 'error');
       }
     } catch (error) {
       showAlert('Network error', 'error');
@@ -125,19 +198,20 @@ export default function Home() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = (): void => {
     setToken('');
     setIsLoggedIn(false);
     setMessages([]);
     setCurrentUser(null);
     localStorage.removeItem('token');
+    showAlert('Logged out successfully', 'info');
   };
 
-  const sendMessage = async (body: string, files?: FileList | null): Promise<boolean> => {
+  const sendMessage = async (messageBody: string, files?: FileList | null): Promise<boolean> => {
     setIsLoading(true);
     try {
       const formData = new FormData();
-      formData.append('body', body);
+      formData.append('body', messageBody);
       
       if (files) {
         Array.from(files).forEach(file => {
@@ -154,42 +228,133 @@ export default function Home() {
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to send message');
+        const responseData = await response.json();
+        throw new Error(responseData.error || 'Failed to send message');
       }
+
+      return true;
     } catch (error) {
       showAlert(error instanceof Error ? error.message : 'Network error', 'error');
       return false;
     } finally {
       setIsLoading(false);
     }
-    return true;
   };
+
+  // Effect for initial authentication check
+  useEffect(() => {
+    const storedToken = localStorage.getItem('token');
+    if (storedToken) {
+      setToken(storedToken);
+      setIsLoggedIn(true);
+      fetchMessages(storedToken);
+    }
+  }, []);
+
+  // Update connection info when device info changes
+  useEffect(() => {
+    setConnectionInfo(prev => ({
+      ...prev,
+      deviceId,
+      browserInfo
+    }));
+  }, [deviceId, browserInfo]);
+
+  // Effect for initial scroll to bottom
+  useEffect(() => {
+    if (messages && messages.length > 0 && !nextCursor) {
+      scrollToBottom('auto');
+    }
+  }, [messages, nextCursor, scrollToBottom]);
+
+  // Effect for scroll event listener
+  useEffect(() => {
+    const container = messagesContainerReference.current;
+    if (container) {
+      container.addEventListener('scroll', handleScroll);
+      return () => container.removeEventListener('scroll', handleScroll);
+    }
+  }, [handleScroll]);
 
   if (!isLoggedIn) {
     return (
-      <AuthForm
-        onAuth={handleAuth}
-        email={email}
-        setEmail={setEmail}
-        password={password}
-        setPassword={setPassword}
-        alert={alert}
-        isLoading={isLoading}
-      />
+      <div className="min-h-screen bg-gray-100 p-4">
+        <div className="max-w-md mx-auto bg-white rounded-lg shadow-md p-6">
+          <h1 className="text-2xl font-bold mb-6 text-center">Notifi Application</h1>
+          {alert && (
+            <Alert variant={alert.type} className="mb-4">
+              <AlertDescription>{alert.message}</AlertDescription>
+            </Alert>
+          )}
+          <div className="space-y-4">
+            <input
+              type="email"
+              placeholder="Email"
+              className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              disabled={isLoading}
+            />
+            <input
+              type="password"
+              placeholder="Password"
+              className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              disabled={isLoading}
+            />
+            <div className="flex space-x-4">
+              <button
+                onClick={() => handleAuthentication(false)}
+                disabled={isLoading}
+                className="flex-1 flex items-center justify-center px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+              >
+                <LogOut className="w-4 h-4 mr-2" /> Login
+              </button>
+              <button
+                onClick={() => handleAuthentication(true)}
+                disabled={isLoading}
+                className="flex-1 flex items-center justify-center px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50"
+              >
+                Register
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     );
   }
 
   return (
     <div className="flex flex-col h-screen bg-gray-100">
       <div className="flex justify-between items-center bg-white shadow-sm p-4">
-        <h1 className="text-xl font-bold">Notifi App</h1>
-        <button
-          onClick={handleLogout}
-          className="flex items-center px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
-        >
-          <LogOut className="w-4 h-4 mr-2" /> Logout
-        </button>
+        <h1 className="text-xl font-bold">Notifi Application</h1>
+        {connectionInfo.browserInfo && (
+            <div className="flex items-center gap-2 text-sm">
+              <div className={`w-2 h-2 rounded-full ${
+                connectionInfo.connected ? 'bg-green-600' : 'bg-red-600'
+              }`} />
+              <span>
+                {connectionInfo.connected ? 'Connected' : 'Disconnected'}
+              </span>
+              <span className="text-gray-500">
+                ({connectionInfo.browserInfo.browser} {connectionInfo.browserInfo.deviceType} - 
+                {connectionInfo.browserInfo.tabId.split('-')[2]})
+              </span>
+            </div>
+          )}
+        <div className="flex items-center gap-4">
+          <ChatSettings 
+            batchSize={batchSize}
+            onBatchSizeChange={setBatchSize}
+          />
+          <button
+            onClick={handleLogout}
+            className="flex items-center px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+          >
+            <LogOut className="w-4 h-4 mr-2" /> Logout
+          </button>
+        </div>
       </div>
 
       {alert && (
@@ -198,18 +363,45 @@ export default function Home() {
         </Alert>
       )}
 
-      <div className="flex-1 overflow-y-auto p-4">
+      <div 
+        ref={messagesContainerReference}
+        className="flex-1 overflow-y-auto p-4"
+      >
+        {isLoadingMore && (
+          <div className="flex justify-center py-2">
+            <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
+          </div>
+        )}
+        
         <div className="flex flex-col space-y-4">
-          {messages.map((message) => (
-            <MessageBubble
-              key={message.id}
-              message={message}
-              isCurrentUser={message.user_id === currentUser}
-            />
-          ))}
-          <div ref={messagesEndRef} /> {/* Scroll anchor */}
+          {!messages || messages.length == 0 ? (
+              <div className="flex justify-center items-center h-full text-gray-500">
+                No messages yet
+              </div>
+            )
+            : (
+              messages.map((message, index) => (
+                <div key={message.id}>
+                  {(index === 0 || areDatesOnDifferentDays(message.timestamp, messages[index - 1].timestamp)) && (
+                    <DateSeparator date={message.timestamp} />
+                  )}
+                  <MessageBubble
+                    message={message}
+                    isCurrentUser={message.user_id === currentUser}
+                  />
+                </div>
+              ))
+            )}
+          <div ref={messagesEndReference} />
         </div>
       </div>
+
+      {unreadCount > 0 && (
+        <JumpToBottomButton
+          onClick={() => scrollToBottom()}
+          unreadCount={unreadCount}
+        />
+      )}
 
       <MessageInput onSend={sendMessage} disabled={isLoading} />
     </div>
