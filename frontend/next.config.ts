@@ -22,6 +22,11 @@ const nextConfig = {
     NEXT_PUBLIC_API_URL: API_URL,
     NEXT_PUBLIC_WS_URL: env.NEXT_PUBLIC_WS_URL || `ws://${API_URL.split('://')[1]}`,
   },
+  devIndicators: {
+    appIsrStatus: false,
+    buildActivity: true,
+    buildActivityPosition: 'bottom-right'
+  },
 };
 
 export default nextConfig;

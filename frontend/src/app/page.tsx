@@ -7,7 +7,7 @@ import { MessageInput } from '@/components/chat/MessageInput';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertState, Message } from '@/types/chat';
 import { LogOut } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 const SERVER_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
@@ -27,6 +27,17 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [currentUser, setCurrentUser] = useState<number | null>(null);
 
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+  
+  // Add effect to scroll to bottom when messages change
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
   const connectWebSocket = useCallback(() => {
     if (!token) return;
 
@@ -34,7 +45,8 @@ export default function Home() {
     
     ws.onmessage = (event) => {
       const message = JSON.parse(event.data);
-      setMessages(prev => [message, ...prev]);
+      // Add new message to the end of the array
+      setMessages(prev => [...prev, message]);
     };
 
     ws.onclose = () => {
@@ -71,6 +83,9 @@ export default function Home() {
       });
       if (response.ok) {
         const data = await response.json();
+        setMessages(data.sort((a: Message, b: Message) => 
+          new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+        ));
         setMessages(data);
       } else {
         throw new Error('Failed to fetch messages');
@@ -168,7 +183,7 @@ export default function Home() {
   return (
     <div className="flex flex-col h-screen bg-gray-100">
       <div className="flex justify-between items-center bg-white shadow-sm p-4">
-        <h1 className="text-xl font-bold">Chat App</h1>
+        <h1 className="text-xl font-bold">Notifi App</h1>
         <button
           onClick={handleLogout}
           className="flex items-center px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
@@ -183,14 +198,17 @@ export default function Home() {
         </Alert>
       )}
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.map((message) => (
-          <MessageBubble
-            key={message.id}
-            message={message}
-            isCurrentUser={message.user_id === currentUser}
-          />
-        ))}
+      <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex flex-col space-y-4">
+          {messages.map((message) => (
+            <MessageBubble
+              key={message.id}
+              message={message}
+              isCurrentUser={message.user_id === currentUser}
+            />
+          ))}
+          <div ref={messagesEndRef} /> {/* Scroll anchor */}
+        </div>
       </div>
 
       <MessageInput onSend={sendMessage} disabled={isLoading} />

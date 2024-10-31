@@ -80,7 +80,7 @@ app.use(cors());
 app.use(express.json());
 
 app.use((req, res, next) => {
-  debug.log('Incoming request:', req.method, req.url, 'Headers:', req.headers);
+  // debug.log('Incoming request:', req.method, req.url, 'Headers:', req.headers);
   next();
 });
 
