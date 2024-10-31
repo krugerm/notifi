@@ -1,8 +1,8 @@
 # Notifi
 
-<img src="logo.svg" width="200" alt="Notifi Logo">
+<img src="frontend/public/logo.svg" width="200" alt="Notifi Logo">
 
-Notifi is a lightweight, real-time notification service that lets you instantly push notifications across all your devices. Built with Node.js, React, and SQLite, it provides a seamless way to stay connected and informed.
+Notifi is a lightweight, real-time notification service that lets you instantly push notifications across all your devices, with multi-device support, file sharing, and instant message delivery. Built with Node.js, React, and SQLite.
 
 ## Features
 
@@ -16,6 +16,10 @@ Notifi is a lightweight, real-time notification service that lets you instantly 
 - ⚡ Fast SQLite database
 - 🎨 Modern React frontend with Tailwind CSS
 - 📱 Responsive design for all devices
+- ♾️ Infinite scroll message history
+- 📅 Date separators
+- 🔄 Automatic reconnection
+- 📍 Unread message tracking
 
 ## Tech Stack
 
@@ -28,6 +32,7 @@ Notifi is a lightweight, real-time notification service that lets you instantly 
 - JWT authentication
 - Zod validation
 - bcrypt password hashing
+- Multer for file uploads
 
 ### Frontend
 
@@ -62,7 +67,13 @@ JWT_SECRET=your-secret-key
 PORT=8000
 ```
 
-4. Run development server:
+4. Create uploads directory:
+
+```bash
+mkdir uploads
+```
+
+5. Run development server:
 
 ```bash
 npm run dev
@@ -127,7 +138,7 @@ Content-Type: application/json
 #### Login
 
 ```http
-POST /users/login
+POST /auth/login
 Content-Type: application/json
 
 {
@@ -139,7 +150,7 @@ Content-Type: application/json
 #### Request Password Reset
 
 ```http
-POST /users/reset-password-request
+POST /auth/reset-password-request
 Content-Type: application/json
 
 {
@@ -150,7 +161,7 @@ Content-Type: application/json
 #### Reset Password
 
 ```http
-POST /users/reset-password
+POST /auth/reset-password
 Content-Type: application/json
 
 {
@@ -159,38 +170,122 @@ Content-Type: application/json
 }
 ```
 
-### Notification Endpoints
+### Message Endpoints
 
-#### Send Notification
+#### Send Message
 
 ```http
-POST /notifications
+POST /messages
 Authorization: Bearer <token>
-Content-Type: application/json
+Content-Type: multipart/form-data
 
-{
-  "title": "Notification Title",
-  "body": "Notification message"
-}
+body: "Message text"
+attachments: [files]
 ```
 
-#### Get Notifications
+#### Get Messages
 
 ```http
-GET /notifications
+GET /messages?limit=20&before=<timestamp>
 Authorization: Bearer <token>
 ```
 
 ### WebSocket Connection
 
 ```javascript
-const ws = new WebSocket("ws://localhost:8000/ws/notifications?token=<jwt-token>");
+const ws = new WebSocket("ws://localhost:8000/ws/messages?token=<jwt-token>&deviceId=<device-identifier>");
 
 ws.onmessage = (event) => {
-  const notification = JSON.parse(event.data);
-  console.log("New notification:", notification);
+  const message = JSON.parse(event.data);
+  console.log("New message:", message);
 };
 ```
+
+## Database Schema
+
+```sql
+CREATE TABLE users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT UNIQUE,
+  password TEXT,
+  reset_token TEXT
+);
+
+CREATE TABLE messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER,
+  body TEXT,
+  timestamp TEXT,
+  FOREIGN KEY(user_id) REFERENCES users(id)
+);
+
+CREATE TABLE attachments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  message_id INTEGER,
+  filename TEXT,
+  mimetype TEXT,
+  path TEXT,
+  FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
+);
+```
+
+## Development
+
+### Directory Structure
+
+```txt
+notifi/
+├── backend/
+│   ├── src/
+│   │   ├── config/
+│   │   │   ├── database.ts
+│   │   │   ├── environment.ts
+│   │   │   └── upload.ts
+│   │   ├── middleware/
+│   │   ├── routes/
+│   │   ├── services/
+│   │   └── types/
+│   └── uploads/
+└── frontend/
+    ├── src/
+    │   ├── app/
+    │   ├── components/
+    │   ├── hooks/
+    │   └── types/
+    └── public/
+```
+
+### Key Features Implementation
+
+#### Multi-device Support
+
+- Unique device identification
+- Session management
+- Cross-device message synchronization
+- Connection status per device
+
+#### File Attachments
+
+- Image previews
+- File downloads
+- Multiple file support
+- Drag and drop upload
+
+#### Real-time Features
+
+- Instant message delivery
+- Typing indicators
+- Online status
+- Read receipts
+- Automatic reconnection
+
+#### UI Features
+
+- Infinite scroll
+- Unread message counter
+- Jump to bottom button
+- Date separators
+- File upload previews
 
 ## Deployment
 
@@ -214,52 +309,6 @@ ws.onmessage = (event) => {
    - `NEXT_PUBLIC_WS_URL`
 4. Deploy
 
-## Database Schema
-
-```sql
-CREATE TABLE users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  email TEXT UNIQUE,
-  password TEXT,
-  reset_token TEXT
-);
-
-CREATE TABLE notifications (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER,
-  title TEXT,
-  body TEXT,
-  timestamp TEXT,
-  FOREIGN KEY(user_id) REFERENCES users(id)
-);
-```
-
-## Development
-
-### Directory Structure
-
-```
-notifi/
-├── backend/
-│   ├── src/
-│   │   ├── server.ts
-│   │   └── types/
-│   │       └── express.d.ts
-│   ├── package.json
-│   └── tsconfig.json
-├── frontend/
-│   ├── components/
-│   │   └── ui/
-│   │       └── alert.tsx
-│   ├── lib/
-│   │   └── utils.ts
-│   ├── pages/
-│   │   └── index.tsx
-│   ├── package.json
-│   └── tailwind.config.js
-└── README.md
-```
-
 ### Type Safety
 
 The project uses TypeScript throughout with strict type checking. Zod is used for runtime validation of all inputs.
@@ -276,6 +325,16 @@ The project uses TypeScript throughout with strict type checking. Zod is used fo
 - Input validation using Zod
 - Proper error handling
 
+## Security Considerations
+
+- All passwords are hashed using bcrypt
+- JWT tokens for authentication
+- Input validation using Zod
+- File upload restrictions
+- SQL injection prevention
+- XSS protection
+- CORS configuration
+
 ## Contributing
 
 1. Fork the repository
@@ -284,40 +343,9 @@ The project uses TypeScript throughout with strict type checking. Zod is used fo
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-### Running Tests
-
-Backend:
-
-```bash
-cd backend
-npm test
-```
-
-Frontend:
-
-```bash
-cd frontend
-npm test
-```
-
-## Security Considerations
-
-- All passwords are hashed using bcrypt
-- JWT tokens for authentication
-- Input validation on all endpoints
-- CORS protection
-- SQL injection prevention
-- XSS protection in frontend
-
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
-
-## Support
-
-- Create an issue on GitHub
-- Join our Discord community: [Discord Invite Link]
-- Email: <support@notifi.example.com>
+This project is licensed under the MIT License.
 
 ## Acknowledgments
 
