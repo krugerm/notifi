@@ -70,8 +70,10 @@ export default function Home() {
       } else {
         throw new Error('Failed to fetch messages');
       }
+      return true;
     } catch (error) {
-      showAlert('Failed to fetch messages', 'error');
+      showAlert(error instanceof Error ? error.message : 'Network error', 'error');
+      return false;
     }
   };
 
@@ -109,10 +111,9 @@ export default function Home() {
     setMessages([]);
     setCurrentUser(null);
     localStorage.removeItem('token');
-    showAlert('Logged out successfully', 'info');
   };
 
-  const sendMessage = async (body: string, files?: FileList | null) => {
+  const sendMessage = async (body: string, files?: FileList | null): Promise<boolean> => {
     setIsLoading(true);
     try {
       const formData = new FormData();
@@ -138,9 +139,11 @@ export default function Home() {
       }
     } catch (error) {
       showAlert(error instanceof Error ? error.message : 'Network error', 'error');
+      return false;
     } finally {
       setIsLoading(false);
     }
+    return true;
   };
 
   if (!isLoggedIn) {
