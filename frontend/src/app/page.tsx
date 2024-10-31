@@ -186,7 +186,7 @@ export default function Home() {
   const handleAuthentication = async (isRegistering: boolean = false): Promise<void> => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${SERVER_URL}/users/${isRegistering ? 'register' : 'login'}`, {
+      const response = await fetch(`${SERVER_URL}/auth/${isRegistering ? 'register' : 'login'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
@@ -309,7 +309,7 @@ export default function Home() {
     return (
       <div className="min-h-screen bg-gray-100 p-4">
         <div className="max-w-md mx-auto bg-white rounded-lg shadow-md p-6">
-          <img src="/logo.svg" alt="Notifi Logo" className="w-16 h-16 mx-auto mb-4" />
+          <img src="/logo.svg" alt="Notifi Logo" className="h-32 mx-auto mb-8" />
           {alert && (
             <Alert variant={alert.type} className="mb-4">
               <AlertDescription>{alert.message}</AlertDescription>
