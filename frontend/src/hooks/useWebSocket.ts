@@ -18,7 +18,8 @@ interface BrowserInfo {
 
 const getBrowserInfo = (): BrowserInfo => {
   // Detect browser
-  const userAgent = navigator?.userAgent ?? '';
+  const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+  const platform = typeof navigator !== 'undefined' ? navigator.platform : '';
   let browser = 'Unknown';
   if (userAgent.includes('Firefox/')) {
     browser = 'Firefox';
@@ -31,19 +32,22 @@ const getBrowserInfo = (): BrowserInfo => {
   }
 
   // Get or create session ID (persists across page refreshes)
-  let sessionId = sessionStorage.getItem('chatSessionId');
-  if (!sessionId) {
-    sessionId = `session-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-    sessionStorage.setItem('chatSessionId', sessionId);
+  let sessionId = `session-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+  if (typeof sessionStorage !== 'undefined') {
+    let sessionId = sessionStorage.getItem('chatSessionId');
+    if (!sessionId) {
+      sessionId = `session-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      sessionStorage.setItem('chatSessionId', sessionId);
+    }
   }
 
   // Generate unique tab ID
   const tabId = `tab-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
   return {
-    platform: navigator.platform,
+    platform: platform,
     browser,
-    deviceType: navigator.userAgent.includes('Mobile') ? 'Mobile' : 'Desktop',
+    deviceType: userAgent.includes('Mobile') ? 'Mobile' : 'Desktop',
     sessionId,
     tabId
   };
@@ -150,9 +154,9 @@ export const useWebSocket = (token: string | null, options: WebSocketOptions) =>
       // Handle visibility change
       const handleVisibilityChange = () => {
         if (document.hidden) {
-          debug.log(`Tab hidden, considering connection cleanup: ${windowDeviceId}`);
+          // debug.log(`Tab hidden, considering connection cleanup: ${windowDeviceId}`);
         } else {
-          debug.log(`Tab visible, checking connection: ${windowDeviceId}`);
+          // debug.log(`Tab visible, checking connection: ${windowDeviceId}`);
           if (!ws || ws.readyState !== WebSocket.OPEN) {
             connect();
           }

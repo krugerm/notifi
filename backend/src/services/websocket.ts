@@ -37,7 +37,7 @@ export class WebSocketService {
   private static async handleConnection(ws: WebSocketConnection, req: IncomingMessage) {
     try {
       ws.connectionId = Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-      debug.log(`New WebSocket connection attempt (${ws.connectionId})`);
+      // debug.log(`New WebSocket connection attempt (${ws.connectionId})`);
 
       const { userId, deviceId } = await this.authenticateConnection(ws, req);
       if (!userId || !deviceId) {
@@ -70,7 +70,7 @@ export class WebSocketService {
       }
 
       const payload = jwt.verify(token, environment.JWT_SECRET) as { userId: number };
-      debug.log(`Authenticated WebSocket connection ${ws.connectionId} for user ${payload.userId} device ${deviceId}`);
+      // debug.log(`Authenticated WebSocket connection ${ws.connectionId} for user ${payload.userId} device ${deviceId}`);
       return { userId: payload.userId, deviceId};
     } catch (error) {
       debug.error(`WebSocket authentication error (${ws.connectionId}):`, error);
@@ -110,16 +110,16 @@ export class WebSocketService {
     });
 
     ws.on('close', (code, reason) => {
-      debug.log(`WebSocket closed for user ${userId} device ${deviceId} (${ws.connectionId}):`, {
-        code,
-        reason: reason.toString()
-      });
+      // debug.log(`WebSocket closed for user ${userId} device ${deviceId} (${ws.connectionId}):`, {
+      //   code,
+      //   reason: reason.toString()
+      // });
       this.cleanupConnection(ws);
     });
 
     // Store the new connection
     userConnections.set(deviceId, ws);
-    debug.log(`WebSocket connection ${ws.connectionId} established for user ${userId} device ${deviceId}`);
+    // debug.log(`WebSocket connection ${ws.connectionId} established for user ${userId} device ${deviceId}`);
 
     // Set up ping interval
     const pingInterval = setInterval(() => {
@@ -152,7 +152,7 @@ export class WebSocketService {
 
     const currentConnection = userConnections.get(ws.deviceId);
     if (currentConnection === ws) {
-      debug.log(`Cleaning up WebSocket connection for user ${ws.userId} device ${ws.deviceId}`);
+      // debug.log(`Cleaning up WebSocket connection for user ${ws.userId} device ${ws.deviceId}`);
       userConnections.delete(ws.deviceId);
 
       // Remove user's map if no more connections
@@ -179,7 +179,7 @@ export class WebSocketService {
           try {
             ws.send(JSON.stringify(message));
             successCount++;
-            debug.log(`Sent message ${message.id} to user ${userId} device ${deviceId}`);
+            // debug.log(`Sent message ${message.id} to user ${userId} device ${deviceId}`);
           } catch (error) {
             debug.error(`Failed to send message to user ${userId} device ${deviceId}:`, error);
             failCount++;

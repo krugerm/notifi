@@ -82,7 +82,7 @@ export class MessageService {
       const message = await this.getMessageById(messageResult.lastID!);
       
       // Broadcast the new message to all connected clients
-      debug.log('Broadcasting new message:', message);
+      // debug.log('Broadcasting new message:', message);
       WebSocketService.broadcast(message);
 
       return message;
