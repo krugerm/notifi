@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 80">
+  <!-- Tech circle -->
+  <circle cx="70" cy="40" r="25" fill="none" stroke="#4F46E5" stroke-width="2"/>
+  <circle cx="70" cy="40" r="20" fill="none" stroke="#818CF8" stroke-width="1.5"/>
+  
+  <!-- Notification dot -->
+  <circle cx="70" cy="40" r="6" fill="#4F46E5"/>
+  
+  <!-- Pulse rings -->
+  <circle cx="70" cy="40" r="15" fill="none" stroke="#C7D2FE" stroke-width="1" opacity="0.6">
+    <animate attributeName="r" values="15;25" dur="1.5s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.6;0" dur="1.5s" repeatCount="indefinite"/>
+  </circle>
+  
+  <!-- Text -->
+  <text x="105" y="50" font-family="Arial" font-weight="bold" font-size="32">
+    <tspan fill="#818CF8">not</tspan>
+    <tspan fill="#4F46E5" dx="-8">ifi</tspan>
+  </text>
+</svg>
