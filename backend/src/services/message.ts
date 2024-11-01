@@ -6,6 +6,7 @@ import { WebSocketService } from './websocket';
 
 const PORT = process.env.PORT || '8000';
 const BACKEND_URL = process.env.BACKEND_URL || `http://localhost:${PORT}`;
+const IS_STATIC_SITE = process.env.IS_STATIC_SITE || false;
 
 export class MessageService {
   static async getMessages(userId: number, limit: number, before?: string): Promise<MessageResponse> {
@@ -42,8 +43,7 @@ export class MessageService {
           ...message,
           attachments: attachments.map(att => ({
             ...att,
-            // url: `/uploads/${att.path}`,
-            url: `${BACKEND_URL}/uploads/${att.path}`,
+            url: IS_STATIC_SITE ? `${BACKEND_URL}/uploads/${att.path}` : `/uploads/${att.path}`,
           })),
         };
       })
@@ -121,8 +121,7 @@ export class MessageService {
       ...message,
       attachments: attachments.map(att => ({
         ...att,
-        // url: `/uploads/${att.path}`,
-        url: `${BACKEND_URL}/uploads/${att.path}`,
+        url: IS_STATIC_SITE ? `${BACKEND_URL}/uploads/${att.path}` : `/uploads/${att.path}`,
       })),
     };
   }
