@@ -2,6 +2,7 @@
 import fs from 'fs';
 import multer from 'multer';
 import path from 'path';
+import { debug } from '../utils/debug';
 import { environment } from './environment';
 
 // Ensure upload directory exists
