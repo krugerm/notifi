@@ -5,18 +5,20 @@ const API_URL = env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  async rewrites() {
-    return [
-      {
-        source: '/uploads/:path*',
-        destination: `${API_URL}/uploads/:path*`,
-      },
-      {
-        source: '/api/:path*',
-        destination: `${API_URL}/:path*`,
-      },
-    ];
-  },
+  // enable if not building a static site
+  // async rewrites() {
+  //   return [
+  //     {
+  //       source: '/uploads/:path*',
+  //       destination: `${API_URL}/uploads/:path*`,
+  //     },
+  //     {
+  //       source: '/api/:path*',
+  //       destination: `${API_URL}/:path*`,
+  //     },
+  //   ];
+  // },
+  output: "export",
   // Type-check environment variables at build time
   env: {
     NEXT_PUBLIC_API_URL: API_URL,

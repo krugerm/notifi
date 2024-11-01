@@ -4,6 +4,9 @@ import { Message, MessageResponse } from '../types/message';
 import { debug } from '../utils/debug';
 import { WebSocketService } from './websocket';
 
+const PORT = process.env.PORT || '8000';
+const BACKEND_URL = process.env.BACKEND_URL || `http://localhost:${PORT}`;
+
 export class MessageService {
   static async getMessages(userId: number, limit: number, before?: string): Promise<MessageResponse> {
     const db = await dbPromise;
@@ -39,7 +42,8 @@ export class MessageService {
           ...message,
           attachments: attachments.map(att => ({
             ...att,
-            url: `/uploads/${att.path}`,
+            // url: `/uploads/${att.path}`,
+            url: `${BACKEND_URL}/uploads/${att.path}`,
           })),
         };
       })
@@ -117,7 +121,8 @@ export class MessageService {
       ...message,
       attachments: attachments.map(att => ({
         ...att,
-        url: `/uploads/${att.path}`,
+        // url: `/uploads/${att.path}`,
+        url: `${BACKEND_URL}/uploads/${att.path}`,
       })),
     };
   }
