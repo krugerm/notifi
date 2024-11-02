@@ -6,6 +6,11 @@ import { messagesRouter } from './messages';
 
 const router = Router();
 
+// isalive
+router.get('/isalive', (req: Request, res: Response) => {
+  res.send('alive');
+});
+
 // Mount the authentication routes
 router.use('/auth', authRouter);
 
