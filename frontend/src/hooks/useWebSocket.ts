@@ -32,13 +32,10 @@ const getBrowserInfo = (): BrowserInfo => {
   }
 
   // Get or create session ID (persists across page refreshes)
-  let sessionId = `session-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-  if (typeof sessionStorage !== 'undefined') {
-    let sessionId = sessionStorage.getItem('chatSessionId');
-    if (!sessionId) {
-      sessionId = `session-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-      sessionStorage.setItem('chatSessionId', sessionId);
-    }
+  const storedSessionId = (typeof sessionStorage !== 'undefined' && sessionStorage) ? sessionStorage.getItem('chatSessionId') : null;
+  const sessionId = storedSessionId ?? `session-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+  if (typeof sessionStorage !== 'undefined' && sessionStorage && !storedSessionId) {
+    sessionStorage.setItem('chatSessionId', sessionId);
   }
 
   // Generate unique tab ID
